@@ -25,3 +25,11 @@ func (file *File) GetIdentifier() uint64 {
 func (file *File) GetName() string {
 	return file.node.GetName()
 }
+
+func (file *File) GetContentType() string {
+	return file.contentType
+}
+
+func (file *File) GetData() string {
+	return file.data
+}

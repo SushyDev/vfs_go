@@ -9,6 +9,36 @@ import (
 	"sync"
 )
 
+type FileSystemInterface interface {
+	GetRoot() *node.Directory
+
+	// --- Directory
+
+	FindOrCreateDirectory(name string, parent *node.Directory) (*node.Directory, error)
+	FindDirectory(name string, parent *node.Directory) (*node.Directory, error)
+	CreateDirectory(name string, parent *node.Directory) (*node.Directory, error)
+	DeleteDirectory(directory *node.Directory) error
+	UpdateDirectory(directory *node.Directory, name string, parent *node.Directory) (*node.Directory, error)
+	GetDirectory(identifier uint64) (*node.Directory, error)
+
+	// --- File
+
+	FindOrCreateFile(name string, parent *node.Directory, contentType string, data string) (*node.File, error)
+	FindFile(name string, parent *node.Directory) (*node.File, error)
+	CreateFile(name string, parent *node.Directory, contentType string, data string) (*node.File, error)
+	DeleteFile(file *node.File) error
+	UpdateFile(file *node.File, name string, parent *node.Directory, contentType string, data string) (*node.File, error)
+	GetFile(identifier uint64) (*node.File, error)
+
+	// --- Node
+
+	GetChildNodes(parent *node.Directory) ([]*node.Node, error)
+	FindChildNode(name string, parent *node.Directory) (*node.Node, error)
+	GetNode(identifier uint64) (*node.Node, error)
+}
+
+var _ FileSystemInterface = &FileSystem{}
+
 type FileSystem struct {
 	root *node.Directory
 
@@ -19,8 +49,8 @@ type FileSystem struct {
 	mu sync.RWMutex
 }
 
-func NewFileSystem() (*FileSystem, error) {
-	database, err := database.New()
+func NewFileSystem(name string, file string) (*FileSystem, error) {
+	database, err := database.New(file)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to create index\n%w", err)
 	}
@@ -35,7 +65,7 @@ func NewFileSystem() (*FileSystem, error) {
 		fileService:      fileService,
 	}
 
-	root, err := fileSystem.FindOrCreateDirectory("vfs_root", nil)
+	root, err := fileSystem.FindOrCreateDirectory(name, nil)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to get root directory\n%w", err)
 	}
@@ -101,12 +131,39 @@ func (fileSystem *FileSystem) DeleteDirectory(directory *node.Directory) error {
 	fileSystem.mu.Lock()
 	defer fileSystem.mu.Unlock()
 
-	node := directory.GetNode()
-	if node == nil {
-		return fmt.Errorf("Node is nil")
+	// get all child nodes
+	childNodes, err := fileSystem.directoryService.GetChildNodes(directory)
+	if err != nil {
+		return fmt.Errorf("Failed to get child nodes\n%w", err)
 	}
 
-	return fileSystem.directoryService.DeleteDirectory(node.GetIdentifier())
+	// delete all child nodes
+	for _, childNode := range childNodes {
+		switch childNode.GetType() {
+		case node.DirectoryNode:
+			directory, err := fileSystem.GetDirectory(childNode.GetIdentifier())
+			if err != nil {
+				return fmt.Errorf("Failed to get directory\n%w", err)
+			}
+
+			err = fileSystem.DeleteDirectory(directory)
+			if err != nil {
+				return fmt.Errorf("Failed to delete directory\n%w", err)
+			}
+		case node.FileNode:
+			file, err := fileSystem.GetFile(childNode.GetIdentifier())
+			if err != nil {
+				return fmt.Errorf("Failed to get file\n%w", err)
+			}
+
+			err = fileSystem.DeleteFile(file)
+			if err != nil {
+				return fmt.Errorf("Failed to delete file\n%w", err)
+			}
+		}
+	}
+
+	return fileSystem.directoryService.DeleteDirectory(directory.GetIdentifier())
 }
 
 func (fileSystem *FileSystem) UpdateDirectory(directory *node.Directory, name string, parent *node.Directory) (*node.Directory, error) {
@@ -134,21 +191,26 @@ func (fileSystem *FileSystem) GetDirectory(identifier uint64) (*node.Directory, 
 	return fileSystem.directoryService.GetDirectory(identifier)
 }
 
-func (fileSystem *FileSystem) GetChildNode(name string, parent *node.Directory) (*node.Node, error) {
-	fileSystem.mu.RLock()
-	defer fileSystem.mu.RUnlock()
-
-	return fileSystem.directoryService.GetChildNode(name, parent)
-}
-
-func (fileSystem *FileSystem) GetChildNodes(parent *node.Directory) ([]*node.Node, error) {
-	fileSystem.mu.RLock()
-	defer fileSystem.mu.RUnlock()
-
-	return fileSystem.directoryService.GetChildNodes(parent)
-}
-
 // --- File
+
+func (fileSystem *FileSystem) FindOrCreateFile(name string, parent *node.Directory, contentType string, data string) (*node.File, error) {
+	file, err := fileSystem.FindFile(name, parent)
+	if err != nil {
+		log.Printf("Failed to find file %s\n", name)
+		return nil, err
+	}
+
+	if file != nil {
+		return file, nil
+	}
+
+	file, err = fileSystem.CreateFile(name, parent, contentType, data)
+	if err != nil {
+		return nil, err
+	}
+
+	return file, nil
+}
 
 func (fileSystem *FileSystem) CreateFile(name string, parent *node.Directory, contentType string, data string) (*node.File, error) {
 	fileSystem.mu.Lock()
@@ -213,4 +275,28 @@ func (fileSystem *FileSystem) GetFiles(parent *node.Directory) ([]*node.File, er
 	defer fileSystem.mu.RUnlock()
 
 	return fileSystem.fileService.GetFiles(parent)
+}
+
+// --- Node
+
+func (fileSystem *FileSystem) GetChildNodes(parent *node.Directory) ([]*node.Node, error) {
+	fileSystem.mu.RLock()
+	defer fileSystem.mu.RUnlock()
+
+	return fileSystem.directoryService.GetChildNodes(parent)
+}
+
+func (fileSystem *FileSystem) GetNode(identifier uint64) (*node.Node, error) {
+	fileSystem.mu.RLock()
+	defer fileSystem.mu.RUnlock()
+
+	// return fileSystem.nodeService.GetNode(identifier)
+	return nil, nil
+}
+
+func (fileSystem *FileSystem) FindChildNode(name string, parent *node.Directory) (*node.Node, error) {
+	fileSystem.mu.RLock()
+	defer fileSystem.mu.RUnlock()
+
+	return fileSystem.directoryService.FindChildNode(name, parent)
 }

@@ -174,7 +174,7 @@ func (service *DirectoryService) FindDirectory(name string, parent *vfs_node.Dir
 	return getDirectoryFromRow(row)
 }
 
-func (service *DirectoryService) GetChildNode(name string, parent *vfs_node.Directory) (*vfs_node.Node, error) {
+func (service *DirectoryService) FindChildNode(name string, parent *vfs_node.Directory) (*vfs_node.Node, error) {
 	service.mu.RLock()
 	defer service.mu.RUnlock()
 
@@ -199,7 +199,7 @@ func (service *DirectoryService) GetChildNodes(parent *vfs_node.Directory) ([]*v
         WHERE parent_id = ?
     `
 
-	rows, err := service.db.Query(query, parent.GetNode().GetIdentifier(), vfs_node.DirectoryNode.String())
+	rows, err := service.db.Query(query, parent.GetIdentifier())
 	if err != nil {
 		return nil, fmt.Errorf("Failed to get directories\n%w", err)
 	}

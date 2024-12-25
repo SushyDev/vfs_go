@@ -7,8 +7,8 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-func New() (*sql.DB, error) {
-	db, err := initializeDatabase()
+func New(file string) (*sql.DB, error) {
+	db, err := initializeDatabase(file)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to initialize database: %v", err)
 	}
@@ -16,8 +16,8 @@ func New() (*sql.DB, error) {
 	return db, nil
 }
 
-func initializeDatabase() (*sql.DB, error) {
-	db, err := sql.Open("sqlite", "./example.db")
+func initializeDatabase(file string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite", file)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to open database: %v", err)
 	}

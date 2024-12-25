@@ -115,6 +115,16 @@ func (service *FileService) DeleteFile(identifier uint64) error {
 		return fmt.Errorf("failed to begin transaction\n%w", err)
 	}
 
+	query := `
+        DELETE FROM files
+        WHERE node_id = ?
+    `
+
+	_, err = transaction.Exec(query, identifier)
+	if err != nil {
+		return fmt.Errorf("failed to delete file\n%w", err)
+	}
+
 	err = service.nodeService.DeleteNode(transaction, identifier)
 	if err != nil {
 		return fmt.Errorf("failed to delete node\n%w", err)

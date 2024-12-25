@@ -21,3 +21,7 @@ func (directory *Directory) GetIdentifier() uint64 {
 func (directory *Directory) GetName() string {
 	return directory.node.GetName()
 }
+
+func (directory *Directory) GetType() NodeType {
+	return directory.node.GetType()
+}

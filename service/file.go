@@ -2,7 +2,6 @@ package service
 
 import (
 	"database/sql"
-	"fmt"
 	"sync"
 
 	vfs_node "github.com/sushydev/vfs_go/node"
@@ -28,13 +27,13 @@ func (service *FileService) CreateFile(name string, parent *vfs_node.Directory, 
 
 	transaction, err := service.db.Begin()
 	if err != nil {
-		return nil, fmt.Errorf("failed to begin transaction\n%w", err)
+		return nil, serviceError("Failed to begin transaction", err)
 	}
 	defer transaction.Rollback()
 
 	identifier, err := service.nodeService.CreateNode(transaction, name, parent, vfs_node.FileNode)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create node\n%w", err)
+		return nil, serviceError("Failed to create node", err)
 	}
 
 	query := `
@@ -44,21 +43,21 @@ func (service *FileService) CreateFile(name string, parent *vfs_node.Directory, 
 
 	result, err := transaction.Exec(query, identifier, contentType, data)
 	if err != nil {
-		return nil, fmt.Errorf("failed to insert file\n%w", err)
+		return nil, serviceError("Failed to insert file", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get rows affected\n%w", err)
+		return nil, serviceError("Failed to get rows affected", err)
 	}
 
 	if rowsAffected != 1 {
-		return nil, fmt.Errorf("failed to insert file\n%w", err)
+		return nil, serviceError("Failed to insert file", err)
 	}
 
 	err = transaction.Commit()
 	if err != nil {
-		return nil, fmt.Errorf("Failed to commit transaction\n%w", err)
+		return nil, serviceError("Failed to commit transaction", err)
 	}
 
 	return identifier, nil
@@ -70,13 +69,13 @@ func (service *FileService) UpdateFile(identifier uint64, name string, parent *v
 
 	transaction, err := service.db.Begin()
 	if err != nil {
-		return fmt.Errorf("failed to begin transaction\n%w", err)
+		return serviceError("Failed to begin transaction", err)
 	}
 	defer transaction.Rollback()
 
 	err = service.nodeService.UpdateNode(transaction, identifier, name, parent)
 	if err != nil {
-		return fmt.Errorf("failed to update node\n%w", err)
+		return serviceError("Failed to update node", err)
 	}
 
 	query := `
@@ -86,21 +85,21 @@ func (service *FileService) UpdateFile(identifier uint64, name string, parent *v
 
 	result, err := transaction.Exec(query, contentType, data, identifier)
 	if err != nil {
-		return fmt.Errorf("failed to update file\n%w", err)
+		return serviceError("Failed to update file", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("failed to get rows affected\n%w", err)
+		return serviceError("Failed to get rows affected", err)
 	}
 
 	if rowsAffected != 1 {
-		return fmt.Errorf("failed to update file\n%w", err)
+		return serviceError("Failed to update file", err)
 	}
 
 	err = transaction.Commit()
 	if err != nil {
-		return fmt.Errorf("failed to commit transaction\n%w", err)
+		return serviceError("Failed to commit transaction", err)
 	}
 
 	return nil
@@ -112,7 +111,7 @@ func (service *FileService) DeleteFile(identifier uint64) error {
 
 	transaction, err := service.db.Begin()
 	if err != nil {
-		return fmt.Errorf("failed to begin transaction\n%w", err)
+		return serviceError("Failed to begin transaction", err)
 	}
 
 	query := `
@@ -122,17 +121,17 @@ func (service *FileService) DeleteFile(identifier uint64) error {
 
 	_, err = transaction.Exec(query, identifier)
 	if err != nil {
-		return fmt.Errorf("failed to delete file\n%w", err)
+		return serviceError("Failed to delete file", err)
 	}
 
 	err = service.nodeService.DeleteNode(transaction, identifier)
 	if err != nil {
-		return fmt.Errorf("failed to delete node\n%w", err)
+		return serviceError("Failed to delete node", err)
 	}
 
 	err = transaction.Commit()
 	if err != nil {
-		return fmt.Errorf("failed to commit transaction\n%w", err)
+		return serviceError("Failed to commit transaction", err)
 	}
 
 	return nil
@@ -153,7 +152,7 @@ func (service *FileService) GetFile(identifier uint64) (*vfs_node.File, error) {
 
 	file, err := getFileFromRow(row)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get file from row\n%w", err)
+		return nil, serviceError("Failed to get file from row", err)
 	}
 
 	return file, nil
@@ -169,7 +168,7 @@ func (service *FileService) ListFiles() ([]*vfs_node.File, error) {
 
 	rows, err := service.db.Query(query)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list files\n%w", err)
+		return nil, serviceError("Failed to list files", err)
 	}
 	defer rows.Close()
 
@@ -178,12 +177,12 @@ func (service *FileService) ListFiles() ([]*vfs_node.File, error) {
 	for rows.Next() {
 		err := rows.Err()
 		if err != nil {
-			return nil, fmt.Errorf("error occurred during rows iteration\n%w", err)
+			return nil, serviceError("Error occurred during rows iteration", err)
 		}
 
 		file, err := getFileFromRow(rows)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get file from row\n%w", err)
+			return nil, serviceError("Failed to get file from row", err)
 		}
 
 		files = append(files, file)
@@ -220,7 +219,11 @@ func (service *FileService) FindFile(name string, parent *vfs_node.Directory) (*
 
 	file, err := getFileFromRow(row)
 	if err != nil {
-		return nil, fmt.Errorf("failed to find file by name\n%w", err)
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+
+		return nil, serviceError("Failed to get file from row", err)
 	}
 
 	return file, nil
@@ -241,7 +244,7 @@ func (service *FileService) GetFiles(parent *vfs_node.Directory) ([]*vfs_node.Fi
 
 	rows, err := service.db.Query(query, parentIdentifier)
 	if err != nil {
-		return nil, fmt.Errorf("failed to find files by parent\n%w", err)
+		return nil, serviceError("Failed to find files by parent", err)
 	}
 	defer rows.Close()
 
@@ -250,12 +253,12 @@ func (service *FileService) GetFiles(parent *vfs_node.Directory) ([]*vfs_node.Fi
 	for rows.Next() {
 		err := rows.Err()
 		if err != nil {
-			return nil, fmt.Errorf("error occurred during rows iteration\n%w", err)
+			return nil, serviceError("Error occurred during rows iteration", err)
 		}
 
 		file, err := getFileFromRow(rows)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get file from row\n%w", err)
+			return nil, serviceError("Failed to get file from row", err)
 		}
 
 		files = append(files, file)
@@ -263,11 +266,6 @@ func (service *FileService) GetFiles(parent *vfs_node.Directory) ([]*vfs_node.Fi
 
 	return files, nil
 }
-
-// Defined in directory.go
-// type row interface {
-// 	Scan(dest ...interface{}) error
-// }
 
 func getFileFromRow(row row) (*vfs_node.File, error) {
 	var identifier uint64
@@ -279,11 +277,12 @@ func getFileFromRow(row row) (*vfs_node.File, error) {
 
 	err := row.Scan(&identifier, &name, &parentIdentifier, &nodeTypeStr, &content_type, &data)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
+		switch err {
+		case sql.ErrNoRows:
+			return nil, sql.ErrNoRows
+		default:
+			return nil, serviceError("Failed to scan file", err)
 		}
-
-		return nil, fmt.Errorf("failed to scan file\n%w", err)
 	}
 
 	var parent_identifier *uint64

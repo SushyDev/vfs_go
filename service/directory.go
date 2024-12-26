@@ -2,7 +2,6 @@ package service
 
 import (
 	"database/sql"
-	"fmt"
 	"sync"
 
 	vfs_node "github.com/sushydev/vfs_go/node"
@@ -28,13 +27,13 @@ func (service *DirectoryService) CreateDirectory(name string, parent *vfs_node.D
 
 	transaction, err := service.db.Begin()
 	if err != nil {
-		return nil, fmt.Errorf("Failed to begin transaction\n%w", err)
+		return nil, serviceError("Failed to begin transaction", err)
 	}
 	defer transaction.Rollback()
 
 	identifier, err := service.nodeService.CreateNode(transaction, name, parent, vfs_node.DirectoryNode)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to create node\n%w", err)
+		return nil, serviceError("Failed to create node", err)
 	}
 
 	query := `
@@ -44,21 +43,21 @@ func (service *DirectoryService) CreateDirectory(name string, parent *vfs_node.D
 
 	result, err := transaction.Exec(query, identifier)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to insert directory\n%w", err)
+		return nil, serviceError("Failed to insert directory", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		return nil, fmt.Errorf("Failed to get rows affected\n%w", err)
+		return nil, serviceError("Failed to get rows affected", err)
 	}
 
 	if rowsAffected != 1 {
-		return nil, fmt.Errorf("Failed to insert directory\n%w", err)
+		return nil, serviceError("Failed to insert directory", err)
 	}
 
 	err = transaction.Commit()
 	if err != nil {
-		return nil, fmt.Errorf("Failed to commit transaction\n%w", err)
+		return nil, serviceError("Failed to commit transaction", err)
 	}
 
 	return identifier, nil
@@ -70,13 +69,13 @@ func (service *DirectoryService) UpdateDirectory(identifier uint64, name string,
 
 	transaction, err := service.db.Begin()
 	if err != nil {
-		return fmt.Errorf("Failed to begin transaction\n%w", err)
+		return serviceError("Failed to begin transaction", err)
 	}
 	defer transaction.Rollback()
 
 	err = service.nodeService.UpdateNode(transaction, identifier, name, parent)
 	if err != nil {
-		return fmt.Errorf("Failed to update node\n%w", err)
+		return serviceError("Failed to update node", err)
 	}
 
 	query := `
@@ -86,21 +85,21 @@ func (service *DirectoryService) UpdateDirectory(identifier uint64, name string,
 
 	result, err := transaction.Exec(query, identifier, identifier)
 	if err != nil {
-		return fmt.Errorf("Failed to update directory\n%w", err)
+		return serviceError("Failed to update directory", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("Failed to get rows affected\n%w", err)
+		return serviceError("Failed to get rows affected", err)
 	}
 
 	if rowsAffected != 1 {
-		return fmt.Errorf("Failed to update directory\n%w", err)
+		return serviceError("Failed to update directory", err)
 	}
 
 	err = transaction.Commit()
 	if err != nil {
-		return fmt.Errorf("Failed to commit transaction\n%w", err)
+		return serviceError("Failed to commit transaction", err)
 	}
 
 	return nil
@@ -112,18 +111,18 @@ func (service *DirectoryService) DeleteDirectory(identifier uint64) error {
 
 	transaction, err := service.db.Begin()
 	if err != nil {
-		return fmt.Errorf("Failed to begin transaction\n%w", err)
+		return serviceError("Failed to begin transaction", err)
 	}
 	defer transaction.Rollback()
 
 	err = service.nodeService.DeleteNode(transaction, identifier)
 	if err != nil {
-		return fmt.Errorf("Failed to delete node\n%w", err)
+		return serviceError("Failed to delete node", err)
 	}
 
 	err = transaction.Commit()
 	if err != nil {
-		return fmt.Errorf("Failed to commit transaction\n%w", err)
+		return serviceError("Failed to commit transaction", err)
 	}
 
 	return nil
@@ -142,7 +141,12 @@ func (service *DirectoryService) GetDirectory(identifier uint64) (*vfs_node.Dire
 
 	row := service.db.QueryRow(query, identifier, vfs_node.DirectoryNode.String())
 
-	return getDirectoryFromRow(row)
+	directory, err := getDirectoryFromRow(row)
+	if err != nil {
+		return nil, serviceError("Failed to get directory from row", err)
+	}
+
+	return directory, nil
 }
 
 func (service *DirectoryService) FindDirectory(name string, parent *vfs_node.Directory) (*vfs_node.Directory, error) {
@@ -171,7 +175,16 @@ func (service *DirectoryService) FindDirectory(name string, parent *vfs_node.Dir
 		row = service.db.QueryRow(query, name, parent.GetNode().GetIdentifier(), vfs_node.DirectoryNode.String())
 	}
 
-	return getDirectoryFromRow(row)
+	directory, err := getDirectoryFromRow(row)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+
+		return nil, serviceError("Failed to get directory from row", err)
+	}
+
+	return directory, nil
 }
 
 func (service *DirectoryService) FindChildNode(name string, parent *vfs_node.Directory) (*vfs_node.Node, error) {
@@ -186,7 +199,16 @@ func (service *DirectoryService) FindChildNode(name string, parent *vfs_node.Dir
 
 	row := service.db.QueryRow(query, name, parent.GetNode().GetIdentifier())
 
-	return getNodeFromRow(row)
+	childNode, err := getNodeFromRow(row)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+
+		return nil, serviceError("Failed to get node from row", err)
+	}
+
+	return childNode, nil
 }
 
 func (service *DirectoryService) GetChildNodes(parent *vfs_node.Directory) ([]*vfs_node.Node, error) {
@@ -201,7 +223,7 @@ func (service *DirectoryService) GetChildNodes(parent *vfs_node.Directory) ([]*v
 
 	rows, err := service.db.Query(query, parent.GetIdentifier())
 	if err != nil {
-		return nil, fmt.Errorf("Failed to get directories\n%w", err)
+		return nil, serviceError("Failed to get child nodes", err)
 	}
 	defer rows.Close()
 
@@ -210,7 +232,7 @@ func (service *DirectoryService) GetChildNodes(parent *vfs_node.Directory) ([]*v
 	for rows.Next() {
 		node, err := getNodeFromRow(rows)
 		if err != nil {
-			return nil, fmt.Errorf("Failed to get directory from row\n%w", err)
+			return nil, serviceError("Failed to get node from row", err)
 		}
 
 		nodes = append(nodes, node)
@@ -221,42 +243,10 @@ func (service *DirectoryService) GetChildNodes(parent *vfs_node.Directory) ([]*v
 
 // --- Helpers
 
-func getNodeFromRow(row row) (*vfs_node.Node, error) {
-	var identifier uint64
-	var name string
-	var parentIdentifier sql.NullInt64
-	var nodeTypeStr string
-
-	err := row.Scan(&identifier, &name, &parentIdentifier, &nodeTypeStr)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-
-		return nil, fmt.Errorf("Failed to scan directory\n%w", err)
-	}
-
-	var parentIdentifierPtr *uint64
-	if parentIdentifier.Valid {
-		parentIdentifierPtr = new(uint64)
-		*parentIdentifierPtr = uint64(parentIdentifier.Int64)
-	}
-
-	nodeType := vfs_node.NodeTypeFromString(nodeTypeStr)
-
-	node := vfs_node.NewNode(identifier, name, parentIdentifierPtr, nodeType)
-
-	return node, nil
-}
-
 func getDirectoryFromRow(row row) (*vfs_node.Directory, error) {
 	node, err := getNodeFromRow(row)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to get node from row\n%w", err)
-	}
-
-	if node == nil {
-		return nil, nil
+		return nil, err
 	}
 
 	directory := vfs_node.NewDirectory(node)

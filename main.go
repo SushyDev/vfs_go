@@ -87,7 +87,6 @@ func (fileSystem *FileSystem) GetRoot() *node.Directory {
 func (fileSystem *FileSystem) FindOrCreateDirectory(name string, parent *node.Directory) (*node.Directory, error) {
 	directory, err := fileSystem.FindDirectory(name, parent)
 	if err != nil {
-		log.Printf("Failed to find directory %s\n", name)
 		return nil, err
 	}
 

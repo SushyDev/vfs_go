@@ -4,7 +4,7 @@ import (
 	"database/sql"
 
 	"github.com/sushydev/vfs_go/internal/database/node"
-	"github.com/sushydev/vfs_go/database/interfaces"
+	"github.com/sushydev/vfs_go/internal/database/interfaces"
 )
 
 type Factory struct {
@@ -15,14 +15,12 @@ func New(db *sql.DB) *Factory {
 	return &Factory{db: db}
 }
 
-func (factory *Factory) NewNode(row interfaces.RowScanner) (interfaces.Node, error) {
-	var id uint64
+func (factory *Factory) New(row interfaces.RowScanner) (interfaces.Node, error) {
+	var id int64
 	var name string
-	var parentId uint64
+	var parentId int64
 	var path string
-	var content []byte
-	var size int64
-	var mode uint32
+	var mode int64
 	var uid int
 	var gid int
 	var modTime string
@@ -34,8 +32,6 @@ func (factory *Factory) NewNode(row interfaces.RowScanner) (interfaces.Node, err
 		&name,
 		&parentId,
 		&path,
-		&content,
-		&size,
 		&mode,
 		&uid,
 		&gid,
@@ -52,8 +48,6 @@ func (factory *Factory) NewNode(row interfaces.RowScanner) (interfaces.Node, err
 		name,
 		parentId,
 		path,
-		content,
-		size,
 		mode,
 		uid,
 		gid,

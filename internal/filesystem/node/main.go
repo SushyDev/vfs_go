@@ -3,8 +3,8 @@ package node
 import (
 	"io/fs"
 
-	"github.com/sushydev/vfs_go/filesystem/interfaces"
-	database_interfaces "github.com/sushydev/vfs_go/database/interfaces"
+	"github.com/sushydev/vfs_go/interfaces"
+	database_interfaces "github.com/sushydev/vfs_go/internal/database/interfaces"
 )
 
 type Node struct {
@@ -20,7 +20,7 @@ func New(entity database_interfaces.Node) (*Node, error) {
 }
 
 func (node *Node) GetId() uint64 {
-	return node.entity.GetId()
+	return uint64(node.entity.GetId())
 }
 
 func (node *Node) GetName() string {
@@ -28,23 +28,15 @@ func (node *Node) GetName() string {
 }
 
 func (node *Node) GetParentId() uint64 {
-	return node.entity.GetParentId()
+	return uint64(node.entity.GetParentId())
 }
 
 func (node *Node) GetPath() string {
 	return node.entity.GetPath()
 }
 
-func (node *Node) GetContent() []byte {
-	return node.entity.GetContent()
-}
-
-func (node *Node) GetSize() int64 {
-	return node.entity.GetSize()
-}
-
 func (node *Node) GetMode() fs.FileMode {
-	return fs.FileMode(node.entity.GetMode())
+	return fs.FileMode(uint32(node.entity.GetMode()))
 }
 
 func (node *Node) GetUid() int {
@@ -72,23 +64,15 @@ func (node *Node) SetName(name string) {
 }
 
 func (node *Node) SetParentId(parentId uint64) {
-	node.entity.SetParentId(parentId)
+	node.entity.SetParentId(int64(parentId))
 }
 
 func (node *Node) SetPath(path string) {
-	return
-}
-
-func (node *Node) SetContent(content []byte) {
-	node.entity.SetContent(content)
-}
-
-func (node *Node) SetSize(size int64) {
-	node.entity.SetSize(size)
+	node.entity.SetPath(path)
 }
 
 func (node *Node) SetMode(mode uint32) {
-	node.entity.SetMode(mode)
+	node.entity.SetMode(int64(mode))
 }
 
 func (node *Node) SetUid(uid int) {

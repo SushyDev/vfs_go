@@ -1,301 +1,327 @@
-package vfs
+package filesystem
 
 import (
+	"syscall"
+	"io/fs"
 	"fmt"
-	"github.com/sushydev/vfs_go/database"
-	"github.com/sushydev/vfs_go/node"
-	"github.com/sushydev/vfs_go/service"
-	"log"
-	"sync"
+
+	"github.com/sushydev/vfs_go/internal/database"
+	"github.com/sushydev/vfs_go/interfaces"
+	node_repository "github.com/sushydev/vfs_go/internal/filesystem/node/repository"
+	node_content_repository "github.com/sushydev/vfs_go/internal/filesystem/node_content/repository"
+	symlink_repository "github.com/sushydev/vfs_go/internal/filesystem/symlink/repository"
 )
 
-type FileSystemInterface interface {
-	GetRoot() *node.Directory
-
-	// --- Directory
-
-	FindOrCreateDirectory(name string, parent *node.Directory) (*node.Directory, error)
-	FindDirectory(name string, parent *node.Directory) (*node.Directory, error)
-	CreateDirectory(name string, parent *node.Directory) (*node.Directory, error)
-	DeleteDirectory(directory *node.Directory) error
-	UpdateDirectory(directory *node.Directory, name string, parent *node.Directory) (*node.Directory, error)
-	GetDirectory(identifier uint64) (*node.Directory, error)
-
-	// --- File
-
-	FindOrCreateFile(name string, parent *node.Directory, contentType string, data string) (*node.File, error)
-	FindFile(name string, parent *node.Directory) (*node.File, error)
-	CreateFile(name string, parent *node.Directory, contentType string, data string) (*node.File, error)
-	DeleteFile(file *node.File) error
-	UpdateFile(file *node.File, name string, parent *node.Directory, contentType string, data string) (*node.File, error)
-	GetFile(identifier uint64) (*node.File, error)
-
-	// --- Node
-
-	GetChildNodes(parent *node.Directory) ([]*node.Node, error)
-	FindChildNode(name string, parent *node.Directory) (*node.Node, error)
-	GetNode(identifier uint64) (*node.Node, error)
-}
-
-var _ FileSystemInterface = &FileSystem{}
-
 type FileSystem struct {
-	root *node.Directory
-
-	nodeService      *service.NodeService
-	directoryService *service.DirectoryService
-	fileService      *service.FileService
-
-	mu sync.RWMutex
+	database       *database.Database
+	nodeRepository *node_repository.Repository
+	nodeContentRepository *node_content_repository.Repository
+	symlinkRepository *symlink_repository.Repository
 }
 
-func NewFileSystem(name string, file string) (*FileSystem, error) {
-	database, err := database.New(file)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to create index\n%w", err)
-	}
+var _ interfaces.FileSystem = &FileSystem{}
 
-	nodeService := service.NewNodeService()
-	directoryService := service.NewDirectoryService(database, nodeService)
-	fileService := service.NewFileService(database, nodeService)
-
-	fileSystem := &FileSystem{
-		nodeService:      nodeService,
-		directoryService: directoryService,
-		fileService:      fileService,
-	}
-
-	root, err := fileSystem.FindOrCreateDirectory(name, nil)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to get root directory\n%w", err)
-	}
-
-	fileSystem.root = root
-
-	return fileSystem, nil
-}
-
-func (fileSystem *FileSystem) GetRoot() *node.Directory {
-	fileSystem.mu.Lock()
-	defer fileSystem.mu.Unlock()
-
-	return fileSystem.root
-}
-
-// --- Directory
-
-func (fileSystem *FileSystem) FindOrCreateDirectory(name string, parent *node.Directory) (*node.Directory, error) {
-	directory, err := fileSystem.FindDirectory(name, parent)
+func New(path string) (*FileSystem, error) {
+	database, err := database.New(path)
 	if err != nil {
 		return nil, err
 	}
 
-	if directory != nil {
-		return directory, nil
+	return &FileSystem{
+		database:       database,
+		nodeRepository: node_repository.New(database),
+	}, nil
+}
+
+func getPath(parentNode interfaces.Node, name string) string {
+	if parentNode.GetPath() == "/" {
+		return "/" + name
 	}
 
-	directory, err = fileSystem.CreateDirectory(name, parent)
+	return parentNode.GetPath() + "/" + name
+}
+
+func (f *FileSystem) Root() (interfaces.Node, error) {
+	return f.nodeRepository.Get(0)
+}
+
+func (f *FileSystem) Open(id uint64) (interfaces.Node, error) {
+	return f.nodeRepository.Get(id)
+}
+
+func (f *FileSystem) Find(name string) (interfaces.Node, error) {
+	return f.nodeRepository.GetByName(name)
+}
+
+func (f *FileSystem) ReadDir(id uint64) ([]interfaces.Node, error) {
+	parentNode, err := f.nodeRepository.Get(id)
 	if err != nil {
 		return nil, err
 	}
 
-	return directory, nil
+	if parentNode == nil {
+		return nil, syscall.ENOENT
+	}
+
+	if !parentNode.GetMode().IsDir() {
+		return nil, syscall.ENOTDIR
+	}
+
+	return f.nodeRepository.GetChildren(parentNode)
 }
 
-func (fileSystem *FileSystem) FindDirectory(name string, parent *node.Directory) (*node.Directory, error) {
-	fileSystem.mu.Lock()
-	defer fileSystem.mu.Unlock()
-
-	return fileSystem.directoryService.FindDirectory(name, parent)
-}
-
-func (fileSystem *FileSystem) CreateDirectory(name string, parent *node.Directory) (*node.Directory, error) {
-	fileSystem.mu.Lock()
-
-	nodeId, err := fileSystem.directoryService.CreateDirectory(name, parent)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to create directory\n%w", err)
-	}
-
-	if nodeId == nil {
-		return nil, fmt.Errorf("Failed to create directory\n")
-	}
-
-	fileSystem.mu.Unlock()
-
-	return fileSystem.GetDirectory(*nodeId)
-}
-
-func (fileSystem *FileSystem) DeleteDirectory(directory *node.Directory) error {
-	fileSystem.mu.Lock()
-	defer fileSystem.mu.Unlock()
-
-	// get all child nodes
-	childNodes, err := fileSystem.directoryService.GetChildNodes(directory)
-	if err != nil {
-		return fmt.Errorf("Failed to get child nodes\n%w", err)
-	}
-
-	// delete all child nodes
-	for _, childNode := range childNodes {
-		switch childNode.GetType() {
-		case node.DirectoryNode:
-			directory, err := fileSystem.GetDirectory(childNode.GetIdentifier())
-			if err != nil {
-				return fmt.Errorf("Failed to get directory\n%w", err)
-			}
-
-			err = fileSystem.DeleteDirectory(directory)
-			if err != nil {
-				return fmt.Errorf("Failed to delete directory\n%w", err)
-			}
-		case node.FileNode:
-			file, err := fileSystem.GetFile(childNode.GetIdentifier())
-			if err != nil {
-				return fmt.Errorf("Failed to get file\n%w", err)
-			}
-
-			err = fileSystem.DeleteFile(file)
-			if err != nil {
-				return fmt.Errorf("Failed to delete file\n%w", err)
-			}
-		}
-	}
-
-	return fileSystem.directoryService.DeleteDirectory(directory.GetIdentifier())
-}
-
-func (fileSystem *FileSystem) UpdateDirectory(directory *node.Directory, name string, parent *node.Directory) (*node.Directory, error) {
-	fileSystem.mu.Lock()
-
-	node := directory.GetNode()
-	if node == nil {
-		return nil, fmt.Errorf("Node is nil")
-	}
-
-	err := fileSystem.directoryService.UpdateDirectory(node.GetIdentifier(), name, parent)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to update directory\n%w", err)
-	}
-
-	fileSystem.mu.Unlock()
-
-	return fileSystem.GetDirectory(node.GetIdentifier())
-}
-
-func (fileSystem *FileSystem) GetDirectory(identifier uint64) (*node.Directory, error) {
-	fileSystem.mu.RLock()
-	defer fileSystem.mu.RUnlock()
-
-	return fileSystem.directoryService.GetDirectory(identifier)
-}
-
-// --- File
-
-func (fileSystem *FileSystem) FindOrCreateFile(name string, parent *node.Directory, contentType string, data string) (*node.File, error) {
-	file, err := fileSystem.FindFile(name, parent)
-	if err != nil {
-		log.Printf("Failed to find file %s\n", name)
-		return nil, err
-	}
-
-	if file != nil {
-		return file, nil
-	}
-
-	file, err = fileSystem.CreateFile(name, parent, contentType, data)
+func (f *FileSystem) Lookup(parentId uint64, name string) (interfaces.Node, error) {
+	parentNode, err := f.nodeRepository.Get(parentId)
 	if err != nil {
 		return nil, err
 	}
 
-	return file, nil
+	if parentNode == nil {
+		return nil, syscall.ENOENT
+	}
+
+	if !parentNode.GetMode().IsDir() {
+		return nil, syscall.ENOTDIR
+	}
+
+	return f.nodeRepository.GetByParentAndName(parentNode, name)
 }
 
-func (fileSystem *FileSystem) CreateFile(name string, parent *node.Directory, contentType string, data string) (*node.File, error) {
-	fileSystem.mu.Lock()
-
-	identifier, err := fileSystem.fileService.CreateFile(name, parent, contentType, data)
+func (f *FileSystem) MkDir(parentId uint64, name string) error {
+	parentNode, err := f.nodeRepository.Get(parentId)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to register file\n%w", err)
+		return err
 	}
 
-	fileSystem.mu.Unlock()
-
-	return fileSystem.GetFile(*identifier)
-}
-
-func (fileSystem *FileSystem) DeleteFile(file *node.File) error {
-	fileSystem.mu.Lock()
-	defer fileSystem.mu.Unlock()
-
-	return fileSystem.fileService.DeleteFile(file.GetNode().GetIdentifier())
-}
-
-func (fileSystem *FileSystem) UpdateFile(file *node.File, name string, parent *node.Directory, contentType string, data string) (*node.File, error) {
-	fileSystem.mu.Lock()
-
-	node := file.GetNode()
-	if node == nil {
-		return nil, fmt.Errorf("Node is nil")
+	if !parentNode.GetMode().IsDir() {
+		return syscall.ENOTDIR
 	}
 
-	err := fileSystem.fileService.UpdateFile(
-		node.GetIdentifier(),
-		name,
-		parent,
-		contentType,
-		data,
-	)
+	path := getPath(parentNode, name)
+
+	return f.database.InsertNode(name, parentNode.GetEntity(), path, uint32(fs.ModeDir), 0, 0, 0, "", "")
+}
+
+// TODO RmDir -f flag
+func (f *FileSystem) RmDir(id uint64) error {
+	node, err := f.nodeRepository.Get(id)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to update file\n%w", err)
+		return err
 	}
 
-	fileSystem.mu.Unlock()
+	children, err := f.nodeRepository.GetChildren(node)
+	if err != nil {
+		return err
+	}
 
-	return fileSystem.GetFile(node.GetIdentifier())
+	if len(children) > 0 {
+		return syscall.ENOTEMPTY
+	}
+
+	err = f.database.DeleteNode(node.GetEntity())
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func (fileSystem *FileSystem) GetFile(identifier uint64) (*node.File, error) {
-	fileSystem.mu.RLock()
-	defer fileSystem.mu.RUnlock()
+func (f *FileSystem) Touch(parentId uint64, name string) error {
+	parentNode, err := f.nodeRepository.Get(parentId)
+	if err != nil {
+		return err
+	}
 
-	return fileSystem.fileService.GetFile(identifier)
+	if !parentNode.GetMode().IsDir() {
+		return syscall.ENOTDIR
+	}
+
+	path := getPath(parentNode, name)
+
+	return f.database.InsertNode(name, parentNode.GetEntity(), path, 0, 0, 0, 0, "", "")
 }
 
-func (fileSystem *FileSystem) FindFile(name string, parent *node.Directory) (*node.File, error) {
-	fileSystem.mu.RLock()
-	defer fileSystem.mu.RUnlock()
+func (f *FileSystem) WriteFile(id uint64, content []byte) (int, error) {
+	node, err := f.nodeRepository.Get(id)
+	if err != nil {
+		return 0, err
+	}
 
-	return fileSystem.fileService.FindFile(name, parent)
+	if node.GetMode() != fs.FileMode(0) {
+		return 0, fmt.Errorf("node %s is not a file", node.GetName())
+	}
+
+	nodeContent, err := f.nodeContentRepository.GetByNode(node)
+	nodeContent.SetContent(content)
+
+	err = f.database.SaveNodeContent(nodeContent.GetEntity())
+	if err != nil {
+		return 0, err
+	}
+
+	return len(content), nil
 }
 
-func (fileSystem *FileSystem) GetFiles(parent *node.Directory) ([]*node.File, error) {
-	fileSystem.mu.RLock()
-	defer fileSystem.mu.RUnlock()
+func (f *FileSystem) ReadFile(id uint64) ([]byte, error) {
+	node, err := f.nodeRepository.Get(id)
+	if err != nil {
+		return nil, err
+	}
 
-	return fileSystem.fileService.GetFiles(parent)
+	if node.GetMode() != fs.FileMode(0) {
+		return nil, fmt.Errorf("node %s is not a file", node.GetName())
+	}
+
+	nodeContent, err := f.nodeContentRepository.GetByNode(node)
+	if err != nil {
+		return nil, err
+	}
+
+	return nodeContent.GetContent(), nil
 }
 
-// --- Node
+func (f *FileSystem) RemoveFile(id uint64) error {
+	node, err := f.nodeRepository.Get(id)
+	if err != nil {
+		return err
+	}
 
-func (fileSystem *FileSystem) GetChildNodes(parent *node.Directory) ([]*node.Node, error) {
-	fileSystem.mu.RLock()
-	defer fileSystem.mu.RUnlock()
+	if node.GetMode().IsDir() {
+		return syscall.EISDIR
+	}
 
-	return fileSystem.directoryService.GetChildNodes(parent)
+	err = f.database.DeleteNode(node.GetEntity())
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func (fileSystem *FileSystem) GetNode(identifier uint64) (*node.Node, error) {
-	fileSystem.mu.RLock()
-	defer fileSystem.mu.RUnlock()
+func (f *FileSystem) Move(id uint64, name string, newParentId uint64) error {
+	node, err := f.nodeRepository.Get(id)
+	if err != nil {
+		return err
+	}
 
-	// return fileSystem.nodeService.GetNode(identifier)
-	return nil, nil
+	if !node.GetMode().IsDir() {
+		return syscall.ENOTDIR
+	}
+
+	parentNode, err := f.nodeRepository.Get(newParentId)
+	if err != nil {
+		return err
+	}
+
+	if !parentNode.GetMode().IsDir() {
+		return syscall.ENOTDIR
+	}
+
+	path := getPath(parentNode, name)
+
+	node.SetName(name)
+	node.SetPath(path)
+	node.SetParentId(newParentId)
+
+	err = f.database.SaveNode(node.GetEntity())
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func (fileSystem *FileSystem) FindChildNode(name string, parent *node.Directory) (*node.Node, error) {
-	fileSystem.mu.RLock()
-	defer fileSystem.mu.RUnlock()
+func (f *FileSystem) Rename(id uint64, newName string, newParentId uint64) error {
+	node, err := f.nodeRepository.Get(id)
+	if err != nil {
+		return err
+	}
 
-	return fileSystem.directoryService.FindChildNode(name, parent)
+	parentNode, err := f.nodeRepository.Get(newParentId)
+	if err != nil {
+		return err
+	}
+
+	if !parentNode.GetMode().IsDir() {
+		return syscall.ENOTDIR
+	}
+
+	path := getPath(parentNode, newName)
+
+	node.SetName(newName)
+	node.SetPath(path)
+	node.SetParentId(newParentId)
+
+	err = f.database.SaveNode(node.GetEntity())
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (f *FileSystem) Link(id uint64, name string, parentId uint64) error {
+	node, err := f.nodeRepository.Get(id)
+	if err != nil {
+		return err
+	}
+
+	if node.GetMode().IsDir() {
+		return syscall.EISDIR
+	}
+
+	parentNode, err := f.nodeRepository.Get(parentId)
+	if err != nil {
+		return err
+	}
+
+	if !parentNode.GetMode().IsDir() {
+		return syscall.ENOTDIR
+	}
+
+	path := getPath(parentNode, name)
+
+	err = f.database.InsertNode(name, parentNode.GetEntity(), path, uint32(fs.ModeSymlink), 0, 0, 0, "", "")
+	if err != nil {
+		return err
+	}
+
+	sourceNode, err := f.nodeRepository.GetByParentAndName(parentNode, name)
+	if err != nil {
+		return err
+	}
+
+	return f.database.InsertSymlink(sourceNode.GetEntity(), node.GetEntity())
+}
+
+func (f *FileSystem) ReadLink(id uint64) (string, error) {
+	node, err := f.nodeRepository.Get(id)
+	if err != nil {
+		return "", err
+	}
+
+	if node.GetMode() != fs.ModeSymlink {
+		return "", syscall.EINVAL
+	}
+
+	symlinkEntity, err := f.database.GetSymlinkBySourceNode(node.GetEntity())
+	if err != nil {
+		return "", err
+	}
+
+	symlink, err := f.symlinkRepository.GetByEntity(symlinkEntity)
+	if err != nil {
+		return "", err
+	}
+
+	targetNode, err := f.nodeRepository.Get(symlink.GetTargetNodeId())
+	if err != nil {
+		return "", err
+	}
+
+	return targetNode.GetPath(), nil
+}
+
+func (f *FileSystem) Save(node interfaces.Node) error {
+	return f.database.SaveNode(node.GetEntity())
 }

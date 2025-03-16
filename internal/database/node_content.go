@@ -6,7 +6,7 @@ import (
 
 func (database *Database) InsertNodeContent(node interfaces.Node, content []byte) error {
 	_, err := database.db.Exec(
-		"INSERT INTO node_content (node_id, content) VALUES (?, ?)",
+		"INSERT INTO node_contents (node_id, content) VALUES (?, ?)",
 		node.GetId(),
 		content,
 	)
@@ -18,20 +18,20 @@ func (database *Database) InsertNodeContent(node interfaces.Node, content []byte
 }
 
 func (database *Database) GetNodeContent(id int64) (interfaces.NodeContent, error) {
-	row := database.db.QueryRow("SELECT * FROM node_content WHERE id = ?", id)
+	row := database.db.QueryRow("SELECT id, node_id, content FROM node_contents WHERE id = ?", id)
 
 	return database.nodeContentFactory.New(row)
 }
 
 func (database *Database) GetNodeContentByNode(node interfaces.Node) (interfaces.NodeContent, error) {
-	row := database.db.QueryRow("SELECT * FROM node_content WHERE node_id = ?", node.GetId())
+	row := database.db.QueryRow("SELECT id, node_id, content FROM node_contents WHERE node_id = ?", node.GetId())
 
 	return database.nodeContentFactory.New(row)
 }
 
 func (database *Database) SaveNodeContent(nodeContent interfaces.NodeContent) error {
 	_, err := database.db.Exec(
-		"INSERT INTO node_content (node_id, content) VALUES (?, ?)",
+		"INSERT INTO node_contents (node_id, content) VALUES (?, ?)",
 		nodeContent.GetNodeId(),
 		nodeContent.GetContent(),
 	)

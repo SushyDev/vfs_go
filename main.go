@@ -32,6 +32,7 @@ func New(path string) (*FileSystem, error) {
 		database:       database,
 		nodeRepository: node_repository.New(database),
 		nodeContentRepository: node_content_repository.New(database),
+		symlinkRepository: symlink_repository.New(database),
 	}, nil
 }
 

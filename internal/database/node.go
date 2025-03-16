@@ -9,7 +9,7 @@ func (d *Database) InsertNode(
 	name string,
 	parent interfaces.Node,
 	path string,
-	mode uint32, // todo ModeType and ModePerm should be separated
+	mode uint32,
 	uid int,
 	gid int,
 	modTime int,

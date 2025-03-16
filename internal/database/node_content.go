@@ -4,6 +4,19 @@ import (
 	"github.com/sushydev/vfs_go/internal/database/interfaces"
 )
 
+func (database *Database) InsertNodeContent(node interfaces.Node, content []byte) error {
+	_, err := database.db.Exec(
+		"INSERT INTO node_content (node_id, content) VALUES (?, ?)",
+		node.GetId(),
+		content,
+	)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (database *Database) GetNodeContent(id int64) (interfaces.NodeContent, error) {
 	row := database.db.QueryRow("SELECT * FROM node_content WHERE id = ?", id)
 

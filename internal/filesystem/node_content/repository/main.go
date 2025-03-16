@@ -30,7 +30,7 @@ func (r *Repository) Get(id uint64) (interfaces.NodeContent, error) {
 func (r *Repository) GetByNode(node interfaces.Node) (interfaces.NodeContent, error) {
 	entity, err := r.database.GetNodeContentByNode(node.GetEntity())
 	if err != nil {
-		return nil, syscall.ENOENT
+		return nil, err
 	}
 
 	return node_content.New(entity)

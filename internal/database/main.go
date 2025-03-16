@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS node_contents (
 	node_id INTEGER NOT NULL,                                    -- Node ID
 	content BLOB NOT NULL,                                       -- File content
 	FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE -- Ensure node exists
+	UNIQUE (node_id)                                             -- Ensure only one content per node
 );
 
 -- Index for faster content lookups

@@ -31,9 +31,9 @@ func (database *Database) GetNodeContentByNode(node interfaces.Node) (interfaces
 
 func (database *Database) SaveNodeContent(nodeContent interfaces.NodeContent) error {
 	_, err := database.db.Exec(
-		"INSERT INTO node_contents (node_id, content) VALUES (?, ?)",
-		nodeContent.GetNodeId(),
+		"UPDATE node_contents SET content = ? WHERE id = ?",
 		nodeContent.GetContent(),
+		nodeContent.GetId(),
 	)
 	if err != nil {
 		return err

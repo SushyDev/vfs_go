@@ -1,6 +1,7 @@
 package database
 
 import (
+	"fmt"
 	"database/sql"
 
 	"github.com/sushydev/vfs_go/internal/database/interfaces"
@@ -105,10 +106,26 @@ func New(path string) (*Database, error) {
 		return nil, err
 	}
 
+	enableWAL(db)
+
 	_, err = db.Exec(schema)
 	if err != nil {
 		return nil, err
 	}
 	
 	return &Database{db: db}, nil
+}
+
+func enableWAL(db *sql.DB) error {
+	_, err := db.Exec("PRAGMA journal_mode=WAL")
+	if err != nil {
+		return fmt.Errorf("Failed to enable WAL mode: %v", err)
+	}
+
+	_, err = db.Exec("PRAGMA synchronous=NORMAL")
+	if err != nil {
+		return fmt.Errorf("Failed to set synchronous mode: %v", err)
+	}
+
+	return nil
 }
